@@ -75,7 +75,7 @@ class RelaxationFittingModel(BaseModel):
         if self.model_type.upper() == 'T1':
             return S0 * (1 - np.exp(-time / T))
         else:
-            # For T2 and T1rho
+            # For T2 and T1rho 
             return S0 * np.exp(-time / T)
 
     def fit(self, images, mask=None):
@@ -115,8 +115,10 @@ class RelaxationFittingModel(BaseModel):
         logger.debug(f"Signals shape: {signals.shape}")
 
         # Initial guesses
-        S0_guess = np.max(signals, axis=0)
+        S0_guess = np.max(signals , axis=0)
+        #S0_guess = np.mean(signals,axis=0)
         T_guess = np.full(signals.shape[1], np.median(self.time_values))
+        #T_guess = np.full(signals.shape[1], 60)
 
         # Prepare output maps
         param_map_flat = np.full(num_voxels, np.nan)
@@ -142,3 +144,62 @@ class RelaxationFittingModel(BaseModel):
         logger.info(f"Completed {self.model_type} fitting process.")
         return self.param_map
     
+    def fit_voxel(self, ydata, p0=None):
+        """
+        Fit the relaxation model to a single voxel's signal.
+
+        Parameters
+        ----------
+        ydata : array-like
+            Signal intensities across time for a single voxel.
+        p0 : list, optional
+            Initial guess [S0, T]. If not provided, defaults are computed.
+
+        Returns
+        -------
+        popt : array or None
+            The fitted parameters [S0, T] if successful, otherwise None.
+        """
+        xdata = self.time_values
+        if p0 is None:
+            S0_guess = np.nanmax(ydata)
+            T_guess = np.median(xdata)
+            p0 = [S0_guess, T_guess]
+        try:
+            popt, _ = curve_fit(self._relaxation_function, xdata, ydata, p0=p0, maxfev=10000)
+            return popt
+        except RuntimeError as e:
+            logger.warning(f"Voxel fitting failed: {e}")
+            return None    
+
+    def plot_voxel_fit(self, ydata, voxel_index=None, p0=None):
+        """
+        Plot the measured signal and fitted curve for a single voxel.
+
+        Parameters
+        ----------
+        ydata : array-like
+            Signal intensities across time for one voxel.
+        voxel_index : int, optional
+            Index for labeling purposes.
+        p0 : list, optional
+            Initial guess for fitting parameters.
+        """
+        import matplotlib.pyplot as plt
+
+        popt = self.fit_voxel(ydata, p0=p0)
+        if popt is None:
+            logger.warning("Fitting failed for the given voxel data.")
+            return
+        xdata = self.time_values
+        fitted_curve = self._relaxation_function(xdata, *popt)
+        
+        plt.figure()
+        plt.plot(xdata, ydata, 'o', label="Measured Data")
+        plt.plot(xdata, fitted_curve, '-', label=f"Fit (S0={popt[0]:.2f}, T={popt[1]:.2f})")
+        plt.xlabel("Time")
+        plt.ylabel("Signal Intensity")
+        title = f"Voxel {voxel_index} Fit" if voxel_index is not None else "Voxel Fit"
+        plt.title(title)
+        plt.legend()
+        plt.show()        
