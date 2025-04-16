@@ -147,22 +147,41 @@ class ROI:
             logger.warning(f"ROI Label {self.label_id} has no valid parameter values after filtering.")
 
 
-    def plot_distribution(self, bins=50, show_mean_std=True):
+    def plot_distribution(self, bins=50, show_mean_std=True, 
+                        apply_valid_mask=True, valid_threshold=1000, 
+                        apply_r2_mask=True):
         if self.pmap is None:
             print(f"ROI {self.label_id}: No parameter map available. Please fit the ROI first.")
             return
 
-        data = self.pmap[self.mask > 0]
-        data = data[~np.isnan(data)]
-        if data.size == 0:
-            print(f"ROI {self.label_id}: Contains no valid parameter values.")
+        # Extract parameter values from ROI voxels
+        roi_mask = self.mask > 0
+        pmap_roi = self.pmap[roi_mask]
+
+        # Start with a composite mask that excludes NaN values
+        composite_mask = ~np.isnan(pmap_roi)
+
+        # Apply valid mask: parameter values below valid_threshold
+        if apply_valid_mask:
+            composite_mask &= (pmap_roi < valid_threshold)
+
+        # Apply R² mask if available (ensuring good fits)
+        if apply_r2_mask and self.fit_quality_mask is not None:
+            composite_mask &= self.fit_quality_mask
+
+        # Filter the data using the composite mask
+        filtered_data = pmap_roi[composite_mask]
+
+        if filtered_data.size == 0:
+            print(f"ROI {self.label_id}: Contains no valid parameter values after filtering.")
             return
 
-        mean_val = np.mean(data)
-        std_val = np.std(data)
+        # Compute statistics on the filtered data
+        mean_val = np.mean(filtered_data)
+        std_val = np.std(filtered_data)
 
         plt.figure(figsize=(8, 5))
-        plt.hist(data, bins=bins, alpha=0.7, color='skyblue', label=f"ROI {self.label_id}")
+        plt.hist(filtered_data, bins=bins, alpha=0.7, color='skyblue', label=f"ROI {self.label_id}")
 
         if show_mean_std:
             plt.axvline(mean_val, color='red', linestyle='dashed', linewidth=2, label=f"Mean: {mean_val:.2f}")
@@ -176,6 +195,7 @@ class ROI:
         plt.ylabel("Frequency")
         plt.legend()
         plt.show()
+
 
 def create_rois(segmentation: sitk.Image, 
                reference_image: sitk.Image,

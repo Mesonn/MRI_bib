@@ -73,7 +73,8 @@ class RelaxationFittingModel(BaseModel):
             Calculated signal intensity.
         """
         if self.model_type.upper() == 'T1':
-            return S0 * (1 - np.exp(-time / T))
+                # Inversion recovery formula (for TI-based acquisitions)
+            return S0 * (1 - 2 * np.exp(-time / T))
         else:
             # For T2 and T1rho 
             return S0 * np.exp(-time / T)

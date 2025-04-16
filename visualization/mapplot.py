@@ -215,11 +215,13 @@ def show_parameter_map_with_rois(
     alpha_param: float = 0.6,
     cmap_roi: str = 'autumn',
     alpha_roi: float = 0.1,
-    save_path: Optional[str] = None
+    save_path: Optional[str] = None,
+    vmin: Optional[float] = None,  # New parameter for minimum color bar value
+    vmax: Optional[float] = None,  # New parameter for maximum color bar value
 ):
     """
     Show the parameter map overlaid on the MRI image with all ROIs highlighted.
-
+    
     Parameters
     ----------
     image : SimpleITK.Image
@@ -240,61 +242,76 @@ def show_parameter_map_with_rois(
         Transparency level for the ROI masks overlay (default is 0.3).
     save_path : Optional[str], optional
         File path to save the visualization (default is None).
+    vmin : Optional[float], optional
+        Minimum value for the color bar (default is None, which uses data minimum).
+    vmax : Optional[float], optional
+        Maximum value for the color bar (default is None, which uses data maximum).
     """
     if save_path:
         display = False  # Will save instead of displaying
         logger.info(f"Display parameter map with ROIs disabled; saving to {save_path}.")
     else:
         display = True
-
+    
     logger.info(f"Displaying parameter map with ROIs on slice {slice_index}.")
-
+    
     image_array = sitk.GetArrayFromImage(image)
-
+    
     if slice_index < 0 or slice_index >= image_array.shape[0]:
         logger.error(f"Slice index {slice_index} is out of bounds for image with shape {image_array.shape}.")
         raise IndexError(f"Slice index {slice_index} is out of bounds for image with shape {image_array.shape}.")
-
+    
     plt.figure(figsize=(6, 6))
     plt.imshow(image_array[slice_index, :, :], cmap='gray')
-
+    
     # Initialize combined_param_map with NaNs
     combined_param_map = np.full_like(image_array, np.nan, dtype=np.float32)
-
+    
     for roi in rois:
         if roi.pmap is not None and roi.mask.shape == image_array.shape:
             combined_param_map[roi.mask > 0] = roi.pmap[roi.mask > 0]
         else:
             logger.warning(f"ROI Label {roi.label_id} has no parameter map or mask shape mismatch.")
-
+    
     if np.any(~np.isnan(combined_param_map)):
         param_slice = combined_param_map[slice_index, :, :]
-        param_im = plt.imshow(param_slice, cmap=cmap_param, alpha=alpha_param)
+        
+        # If vmin or vmax are not provided, calculate them from the data
+        if vmin is None:
+            vmin = np.nanmin(param_slice)
+        if vmax is None:
+            vmax = np.nanmax(param_slice)
+        
+        # Use vmin and vmax when creating the parameter map image
+        param_im = plt.imshow(param_slice, cmap=cmap_param, alpha=alpha_param, 
+                               vmin=vmin, vmax=vmax)
+        
+        # Create colorbar with specified range
         cbar = plt.colorbar(param_im, fraction=0.046, pad=0.04)
         cbar.set_label('Parameter Value')
     else:
         logger.error("No valid parameter maps found in the provided ROIs.")
         raise ValueError("At least one ROI with a valid parameter map must be provided.")
-
+    
     # Overlay the combined ROI masks
     combined_mask = np.zeros_like(image_array[slice_index, :, :], dtype=bool)
-
+    
     for roi in rois:
         if roi.mask.shape != image_array.shape:
             logger.error(f"ROI Label {roi.label_id} mask shape {roi.mask.shape} does not match image shape {image_array.shape}.")
             raise ValueError(f"ROI Label {roi.label_id} mask shape {roi.mask.shape} does not match image shape {image_array.shape}.")
         combined_mask |= roi.mask[slice_index, :, :] > 0
-
+    
     if np.any(combined_mask):
         plt.imshow(np.ma.masked_where(~combined_mask, combined_mask), cmap=cmap_roi, alpha=alpha_roi)
-
+    
     plt.title(title)
     plt.axis('off')
     plt.tight_layout()
-
+    
     if save_path:
         plt.savefig(save_path, bbox_inches='tight')
         logger.info(f"Parameter map with ROIs saved to {save_path}.")
-
+    
     if display:
         plt.show()
