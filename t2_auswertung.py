@@ -15,9 +15,9 @@ from visualization.mapplot import (
     show_rois_with_mean,
 )
 
-input_dicom_folder_T2 = '/home/gizmoo/Desktop/T2_auswertung/T2_2D_mod_nopf/5_T2Map_2D_modnopf(Images)_00006'
-save_folder = '/home/gizmoo/Desktop/T2_auswertung/T2_2D_mod_nopf/results'
-seg_path = '/home/gizmoo/Desktop/T2_auswertung/T2_2D_mod_nopf/Mask3.nii.gz'
+input_dicom_folder_T2 = '/home/gizmoo/Desktop/auswertungen/t2/19_T2Map_2D(Images)_00011'
+save_folder = '/home/gizmoo/Desktop/auswertungen/t2/results'
+seg_path = '/home/gizmoo/Desktop/auswertungen/t2/t2_mask.nii.gz'
 
 
 images, echos = dicom_reader.read_multiple_echos_one_folder(input_dicom_folder_T2)
@@ -31,12 +31,12 @@ fitting_model = RelaxationFittingModel(time_values= echos[1:],model_type=relaxat
 seg = nifti_reader.load_segmentation_nii(seg_path)
 print(f"Segmentation Size: {seg.GetSize()}")
 
-label_values = list(range(1,4))
+label_values = list(range(1,5))
 rois = create_rois(seg, images[0], label_values)
 print(f"Number of ROIs Created: {len(rois)}")
 
 
-slice_index = 11  # Adjust based on your data
+slice_index = 0  # Adjust based on your data
 show_mask(
     image=images[0],
     rois=rois,

@@ -20,24 +20,26 @@ from visualization.mapplot import (
     show_rois_with_mean,
 )
 
-# Base directory and paths
-base_dir = '/home/gizmoo/Desktop/auswertungen/t1'
-mess_dir = f'{base_dir}/messungen'
-seg_path = f'{base_dir}/t1_mask.nii.gz'
-save_folder = f"{base_dir}/results"
 
-# Create save folder if it doesn't exist
-os.makedirs(save_folder, exist_ok=True)
+
+
+# Base directory and paths
+base_dir = '/home/gizmoo/Desktop/t1_rho'
+seg_path = f'{base_dir}/t1_rho.nii.gz'
+save_folder = f"{base_dir}/results_new"
+
+
+
 
 # Dictionary mapping TI values to their folder paths
 ti_folders = {
-    25: f'{mess_dir}/17_t1_2D_TI25ms_00026',
-    50: f'{mess_dir}/18_t1_2D_TI50ms_00006',
-    100: f'{mess_dir}/15_t1_2D_TI100ms_00016',
-    500: f'{mess_dir}/16_t1_2D_TI500ms_00021',
-    1000: f'{mess_dir}/14_t1_2D_TI1000ms_00011',
-    2000: f'{mess_dir}/13_t1_2D_TI2000ms_00006',
-    3000: f'{mess_dir}/12_t1_2D_TI3000ms_00642'
+    10: f'{base_dir}/2_T1rho_cor_NATURE_8contrasts_50214',
+    40: f'{base_dir}/3_T1rho_cor_NATURE_8contrasts_50214',
+    70: f'{base_dir}/4_T1rho_cor_NATURE_8contrasts_50214',
+    100: f'{base_dir}/5_T1rho_cor_NATURE_8contrasts_50214',
+    130: f'{base_dir}/6_T1rho_cor_NATURE_8contrasts_50214',
+    160: f'{base_dir}/7_T1rho_cor_NATURE_8contrasts_50214'
+    # 3000: f'{base_dir}/43_t12D_TI3000ms_TRhigh_BW977_HR_peFH_00268'
 }
 
 # Sort TI values and create ordered lists for both TI and folders
@@ -59,7 +61,7 @@ print(f"Image Size: {images[0].GetSize()}")
 reference_image = images[-1] 
 
 # Configure fitting model
-relaxation = 'T1'
+relaxation = 'T2'
 fitting_model = RelaxationFittingModel(time_values=TI, model_type=relaxation)
 
 # Load segmentation
@@ -67,12 +69,12 @@ seg = nifti_reader.load_segmentation_nii(seg_path)
 print(f"Segmentation Size: {seg.GetSize()}")
 
 # Create ROIs using the reference image (best anatomical detail)
-label_values = list(range(1, 5))
+label_values = list(range(1, 4))
 rois = create_rois(seg, reference_image, label_values)
 print(f"Number of ROIs Created: {len(rois)}")
 
 # Choose slice to visualize
-slice_index = 0
+slice_index = 11
 
 # Show mask overlay using the reference image
 show_mask(
@@ -130,4 +132,13 @@ show_rois_with_mean(
     save_path=f"{save_folder}/T1_roi_means.png"
 )
 
+
+roi1 = rois[0]
+voxels = [0,10,20]
+for voxel in voxels:
+    voxel_signal = roi1.signal[voxel, :] 
+    fitting_model.plot_voxel_fit(ydata=voxel_signal, voxel_index=voxel)
+
+for roi in rois:
+    roi.plot_distribution()
 print("T1 Mapping analysis complete!")

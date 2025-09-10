@@ -7,6 +7,8 @@ from fitting.relaxation_fitting import RelaxationFittingModel
 from process.resampling import extract_and_resample_labels
 from process.filtering import SignalFilter  # Updated import path
 import matplotlib.pyplot as plt
+from scipy.stats import entropy
+
 
 logger = setup_logger(__name__)
 
@@ -21,6 +23,7 @@ class ROI:
     signal: Optional[np.ndarray] = field(default=None)         # (num_voxels, num_timepoints)
     fit_quality_mask: Optional[np.ndarray] = field(default=None) # Boolean mask for good fits
     r2_values: Optional[np.ndarray] = field(default=None)        # R² for each voxel
+    entropy: Optional[float] = field(default=None) 
 
     def compute_signals(self, images: List[sitk.Image]):
         logger.info(f"Computing signals for ROI Label {self.label_id}...")
@@ -195,7 +198,27 @@ class ROI:
         plt.ylabel("Frequency")
         plt.legend()
         plt.show()
+        
+    def compute_entropy(self):
+        """Calculates the Shannon entropy of the ROI using the first echo's signal."""
+        if self.signal is None:
+            logger.warning(f"ROI {self.label_id}: Signals not computed. Cannot calculate entropy.")
+            self.entropy = 0.0
+            return self.entropy
 
+        # Get pixel values from the first image (first column of the signal array)
+        pixels_first_image = self.signal[:, 0]
+
+        if pixels_first_image.size == 0:
+            self.entropy = 0.0
+            return self.entropy
+
+        counts = np.bincount(pixels_first_image.astype(int))
+        probabilities = counts / pixels_first_image.size
+        
+        # Calculate and store entropy in bits
+        self.entropy = entropy(probabilities, base=2)
+        return self.entropy
 
 def create_rois(segmentation: sitk.Image, 
                reference_image: sitk.Image,
