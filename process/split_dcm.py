@@ -12,65 +12,6 @@ from utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 
-def split_dcm(dcm_list: list) -> List[List[str]]:
-    """
-    Splits a list of DICOM file paths into separate lists based on SliceLocation and echoes.
-
-    Parameters
-    ----------
-    dcm_list : list
-        List of DICOM file paths.
-
-    Returns
-    -------
-    echo_list : list of lists
-        Nested list where each sublist contains DICOM files for a specific echo across all slices.
-    """
-
-    logger.info("Starting split_dcm function")
-    location: Dict[float, List[str]] = {}
-    skipped_files = 0
-
-    for f in dcm_list:
-        try:
-            d = pydicom.dcmread(f)
-        except Exception as e:
-            logger.warning(f"failed to read DICOM file {f}: {e}")
-            skipped_files += 1 
-            continue
-
-        slice_loc = getattr(d, 'SliceLocation', None)
-        if slice_loc is not None:
-            slice_loc_value = slice_loc.value
-            location.setdefault(slice_loc_value,[]).append(f)
-            logger.debug(f"Added file {f} to slice location {slice_loc_value}.")
-        else:
-            logger.warning(f"SliceLocation not found in DICOM file {f}.")
-
-        if skipped_files > 0:
-            logger.info(f"Skipped {skipped_files} DICOM files due to read errors.")
-
-        locations = check_locations(locations)
-        split_dcmList = [locations[key] for key in sorted(locations.keys())]
-        
-        if not split_dcmList:
-            logger.error("No valid DICOM files found after processing.")
-            return []
-
-        echo_count = len(split_dcmList[0])
-        echo_list: List[List[str]] = [[] for _ in range(echo_count)]
-        logger.info(f"Number of echoes per slice: {echo_count}")
-
-        for echos in split_dcmList:
-            for idx, echo in enumerate(echos):
-                echo_list[idx].append(echo)
-                logger.debug(f"Assigned file {echo} to echo index {idx}.")
-
-        logger.info("Completed split_dcm function.")
-        return echo_list
-
-
-
 def check_locations(locations: Dict[float, List[str]]) -> Dict[float, List[str]]:
     """
     Validates and corrects slice locations to ensure consistent echo counts.
@@ -152,7 +93,9 @@ def split_dcm(dcm_list: list) -> Dict[float, List[str]]:
 
     # Check for consistent number of slices across echoes
     slice_counts = [len(files) for files in echo_dict.values()]
-    if len(set(slice_counts)) > 1:
+    if not slice_counts:
+        logger.error("No DICOM files with SliceLocation and EchoTime found.")
+    elif len(set(slice_counts)) > 1:
         logger.warning(f"Inconsistent number of slices across echoes: {slice_counts}")
     else:
         logger.info(f"Number of slices per echo: {slice_counts[0]}")

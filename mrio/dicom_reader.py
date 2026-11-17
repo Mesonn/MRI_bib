@@ -1,6 +1,7 @@
 # MRI_bib/mrio/dicom_reader.py
 
 import os
+import re
 import logging
 import SimpleITK as sitk
 import pydicom
@@ -83,44 +84,64 @@ def read_multiple_echos_one_folder(dicom_folder):
     logger.info(f"Total echoes read: {len(images)} with echo times: {echo_times}")
     return images, echo_times
 
+def _time_from_folder_name(folder):
+    """
+    Parse the time (ms) from a series folder name, e.g. 'TSL_10ms' or 't1_2D_TI25ms_00026'.
+
+    A '<number>ms' token labelled TI/TSL wins; otherwise a single unlabelled '<number>ms'
+    token is used. Returns NaN if there is no unambiguous token.
+    """
+    name = os.path.basename(os.path.normpath(str(folder)))
+    tokens = re.findall(r'(?i)(TSL|TI)?[_-]?(\d+(?:\.\d+)?)\s*ms', name)
+    labelled = [float(value) for label, value in tokens if label]
+    if len(labelled) == 1:
+        return labelled[0]
+    if not labelled and len(tokens) == 1:
+        return float(tokens[0][1])
+    return np.nan
+
+
 def read_multiple_spin_lock_series(dicom_folders):
     """
-    Read multiple spin-lock images from separate DICOM folders.
+    Read multiple series (e.g. spin-lock or inversion times) from separate DICOM folders.
+
+    The time of each series is parsed from an explicit '<number>ms' token in the folder
+    name (e.g. 'TSL_10ms', 't1_2D_TI25ms_...'). If every folder has one, the series are
+    returned sorted by time. Otherwise all series are returned in the order given (none
+    is dropped) with NaN for unknown times, and the caller must supply the time values
+    in that same order.
 
     Parameters
     ----------
     dicom_folders : list of str
-        List of paths to folders containing DICOM files for each spin-lock time.
+        List of paths to folders containing DICOM files for each time point.
 
     Returns
     -------
     images : list of SimpleITK.Image
-        List of images for each spin-lock time.
+        List of images, one per folder.
     tsl_values : list of float
-        Corresponding spin-lock times.
+        Corresponding times in ms (NaN if not parseable).
     """
-    logger.info("Reading multiple spin-lock series from separate folders.")
+    logger.info("Reading multiple series from separate folders.")
     images = []
     tsl_values = []
     for folder in dicom_folders:
-        image = read_dicom_series(folder)
-        images.append(image)
-        # Extract TSL from folder name or DICOM metadata
-        # Example assumes folder names contain TSL values like 'TSL_10ms'
-        try:
-            tsl_str = os.path.basename(folder).split('_')[-1]
-            tsl = float(tsl_str.replace('ms', ''))
-        except (IndexError, ValueError) as e:
-            logger.warning(f"Failed to extract TSL from folder name '{folder}': {e}")
-            tsl = np.nan
+        images.append(read_dicom_series(folder))
+        tsl = _time_from_folder_name(folder)
+        if np.isnan(tsl):
+            logger.warning(f"No unambiguous '<number>ms' time found in folder name '{folder}'.")
         tsl_values.append(tsl)
-        logger.info(f"Folder '{folder}' read with TSL: {tsl} ms")
-    # Sort images and TSLs based on TSL values, handling NaNs
-    valid_indices = [i for i, tsl in enumerate(tsl_values) if not np.isnan(tsl)]
-    sorted_indices = sorted(valid_indices, key=lambda i: tsl_values[i])
+        logger.info(f"Folder '{folder}' read with time: {tsl} ms")
+
+    if any(np.isnan(tsl) for tsl in tsl_values):
+        logger.warning("Times could not be parsed for every folder; keeping the given folder order.")
+        return images, tsl_values
+
+    sorted_indices = sorted(range(len(images)), key=lambda i: tsl_values[i])
     images_sorted = [images[i] for i in sorted_indices]
     tsl_values_sorted = [tsl_values[i] for i in sorted_indices]
-    logger.info(f"Sorted spin-lock images by TSL values: {tsl_values_sorted}")
+    logger.info(f"Sorted images by time values: {tsl_values_sorted}")
     return images_sorted, tsl_values_sorted
 
 

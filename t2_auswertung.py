@@ -2,6 +2,7 @@ import SimpleITK as sitk
 import numpy as np 
 import matplotlib.pyplot as plt
 from pathlib import Path
+import os
 from mrio import dicom_reader
 from mrio import nifti_reader
 from models.roi import create_rois, ROI  # Import create_rois and ROI class
@@ -17,6 +18,7 @@ from visualization.mapplot import (
 
 input_dicom_folder_T2 = '/home/gizmoo/Desktop/auswertungen/t2/19_T2Map_2D(Images)_00011'
 save_folder = '/home/gizmoo/Desktop/auswertungen/t2/results'
+os.makedirs(save_folder, exist_ok=True)
 seg_path = '/home/gizmoo/Desktop/auswertungen/t2/t2_mask.nii.gz'
 
 
@@ -65,5 +67,5 @@ show_parameter_map_with_rois(
     vmin= 10,
     vmax= 60,
     alpha_roi=0.3,         # Adjust transparency as needed
-    save_path= save_folder
+    save_path= f"{save_folder}/T2_parameter_map.png"
 )    
