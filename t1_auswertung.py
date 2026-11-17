@@ -2,6 +2,7 @@ import SimpleITK as sitk
 import numpy as np 
 import matplotlib.pyplot as plt
 from pathlib import Path
+import os
 from mrio import dicom_reader
 from mrio import nifti_reader
 from models.roi import create_rois, ROI  # Import create_rois and ROI class
@@ -32,6 +33,7 @@ sl5 = '/home/gizmoo/Desktop/Dixon_Test/t1_small_TR/42_t1_2D_TI1000ms_BW977_HR_pe
 
 folders = [sl1,sl2,sl3,sl4,sl5]
 save_folder = "/home/gizmoo/Desktop/Dixon_Test/t1_small_TR/results"
+os.makedirs(save_folder, exist_ok=True)
 
 images, _ = dicom_reader.read_multiple_spin_lock_series(folders)
 TI = [25,50,100,500,1000]
@@ -62,7 +64,7 @@ show_mask(
     alpha=0.5,
 )
 
-# Fit T2 curve for each ROI
+# Fit T1 curve for each ROI
 for roi in rois:
     print(f"Fitting T1 curve for Label {roi.label_id}...")
     roi.fit(images=images,fitting_model= fitting_model)
@@ -70,17 +72,17 @@ for roi in rois:
     print(f"Label {roi.label_id} - Mean T1: {roi.mean:.2f} ms, Std T1: {roi.std:.2f} ms")
 
 
-# Visualize the combined T2 Parameter Map with all ROIs
+# Visualize the combined T1 Parameter Map with all ROIs
 show_parameter_map_with_rois(
     image=images[0],
     rois=rois,
     slice_index=slice_index,  # Adjust based on your data
-    title=f"Combined T2 Parameter Map with ROIs - Slice {slice_index}",
+    title=f"Combined T1 Parameter Map with ROIs - Slice {slice_index}",
     cmap_param='jet',       # Choose an appropriate colormap
     alpha_param=0.8,       # Adjust transparency as needed
     cmap_roi='autumn',     # Choose an appropriate colormap for ROIs
     vmin= 100,
     vmax= 500,
     alpha_roi=0.3,         # Adjust transparency as needed
-    save_path= save_folder
+    save_path= f"{save_folder}/T1_parameter_map.png"
 )    

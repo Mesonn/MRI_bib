@@ -8,6 +8,5 @@ utils: Utility functions and configurations.
 from .logger import setup_logger
 
 __all__ = [
-    'calculate_mean_std',
     'setup_logger'
 ]

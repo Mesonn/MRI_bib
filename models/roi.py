@@ -3,7 +3,7 @@ import numpy as np
 import SimpleITK as sitk
 from typing import List, Optional
 from utils.logger import setup_logger
-from fitting.relaxation_fitting import RelaxationFittingModel
+from fitting.relaxation_fitting import RelaxationFittingModel, is_t1_model
 from process.resampling import extract_and_resample_labels
 from process.filtering import SignalFilter  # Updated import path
 import matplotlib.pyplot as plt
@@ -11,6 +11,10 @@ from scipy.stats import entropy
 
 
 logger = setup_logger(__name__)
+
+# Physically plausible range (ms, exclusive) of fitted relaxation times used for statistics.
+DEFAULT_VALID_RANGE = (0.0, 1000.0)       # T2, T2*, T1rho
+DEFAULT_VALID_RANGE_T1 = (0.0, 5000.0)    # T1
 
 @dataclass
 class ROI:
@@ -23,7 +27,13 @@ class ROI:
     signal: Optional[np.ndarray] = field(default=None)         # (num_voxels, num_timepoints)
     fit_quality_mask: Optional[np.ndarray] = field(default=None) # Boolean mask for good fits
     r2_values: Optional[np.ndarray] = field(default=None)        # R² for each voxel
-    entropy: Optional[float] = field(default=None) 
+    entropy: Optional[float] = field(default=None)
+    r2_map: Optional[np.ndarray] = field(default=None)         # R² map from the fit (image shape)
+    model_type: Optional[str] = field(default=None)            # Model used for the fit
+
+    def default_valid_range(self):
+        """Valid (lower, upper) range of fitted values for this ROI's model type."""
+        return DEFAULT_VALID_RANGE_T1 if is_t1_model(self.model_type) else DEFAULT_VALID_RANGE
 
     def compute_signals(self, images: List[sitk.Image]):
         logger.info(f"Computing signals for ROI Label {self.label_id}...")
@@ -54,49 +64,40 @@ class ROI:
         logger.info(f"Fitting parameter map for ROI Label {self.label_id} using filtered data...")
         fitted_map = fitting_model.fit(images=images, mask=filtered_mask)
         self.pmap = fitted_map
-        # Also store the S0 map from the fitting model for use in quality evaluation.
+        # Also store the S0 and R² maps from the fitting model for use in quality evaluation.
         self.s0_map = fitting_model.s0_map
+        self.r2_map = fitting_model.r2_map
+        self.model_type = fitting_model.model_type
         logger.info(f"Fitting completed for ROI Label {self.label_id}.")
 
-    def evaluate_fit_quality(self, time_values, model_type='T2', threshold=0.9):
+    def evaluate_fit_quality(self, time_values=None, model_type=None, threshold=0.9):
         """
         Evaluate goodness-of-fit using the R² metric for each voxel.
-        Voxels with R² >= threshold are flagged as good fits.
-        
+        Voxels with R² >= threshold are flagged as good fits; voxels that were
+        not fitted (filtered out or failed) are flagged as bad.
+
+        R² is computed during fitting with the exact signal model and parameters
+        that were fitted, so it is always consistent with the fit.
+
         Parameters
         ----------
-        time_values : array-like
-            Time points corresponding to the signals.
+        time_values : array-like, optional
+            Kept for backward compatibility; not used.
         model_type : str, optional
-            'T1' or other types (e.g., 'T2', 'T1rho'). Default is 'T2'.
+            Kept for backward compatibility; not used (the fitted model is used).
         threshold : float, optional
             R² threshold (default 0.9).
-        
+
         Returns
         -------
         np.ndarray
             Boolean mask for voxels with acceptable fits.
         """
-        if self.signal is None or self.pmap is None or self.s0_map is None:
-            raise ValueError("Signals and fitted maps must be computed before evaluating fit quality.")
+        if self.pmap is None or self.r2_map is None:
+            raise ValueError("The ROI must be fitted before evaluating fit quality.")
 
-        num_voxels = self.signal.shape[0]
-        r2_values = np.zeros(num_voxels)
-        # Use the ROI mask to extract fitted parameters for the ROI voxels.
-        fitted_T = self.pmap[self.mask > 0]
-        fitted_S0 = self.s0_map[self.mask > 0]
-
-        t = np.array(time_values)
-        for i in range(num_voxels):
-            y_measured = self.signal[i, :]
-            if model_type.upper() == 'T1':
-                y_fitted = fitted_S0[i] * (1 - np.exp(-t / fitted_T[i]))
-            else:
-                y_fitted = fitted_S0[i] * np.exp(-t / fitted_T[i])
-            ss_res = np.sum((y_measured - y_fitted) ** 2)
-            ss_tot = np.sum((y_measured - np.mean(y_measured)) ** 2)
-            r2 = 1.0 if ss_tot == 0 else 1 - ss_res / ss_tot
-            r2_values[i] = r2
+        r2_values = self.r2_map[self.mask > 0]
+        num_voxels = r2_values.size
 
         self.fit_quality_mask = r2_values >= threshold
         self.r2_values = r2_values
@@ -104,25 +105,33 @@ class ROI:
                     f"Good fits (R² >= {threshold}): {np.sum(self.fit_quality_mask)} / {num_voxels}")
         return self.fit_quality_mask
 
-    def compute_statistics(self):
+    def compute_statistics(self, valid_range=None):
         """
         Compute mean and standard deviation of the fitted parameter values within the ROI,
-        applying additional filtering such that only voxels with pmap < 1000 and acceptable
-        R² values (from fit_quality_mask) are included. Also logs the number and percentage of
-        voxels that remain after filtering.
+        applying additional filtering such that only voxels with lower < pmap < upper and
+        acceptable R² values (from fit_quality_mask) are included. Also logs the number and
+        percentage of voxels that remain after filtering.
+
+        Parameters
+        ----------
+        valid_range : tuple(float, float), optional
+            Exclusive (lower, upper) range of accepted values. Defaults to (0, 1000) ms,
+            or (0, 5000) ms for T1.
         """
         if self.pmap is None:
             raise ValueError("Parameter map has not been fitted yet.")
 
+        lower, upper = valid_range if valid_range is not None else self.default_valid_range()
+
         # Extract the ROI voxel indices from the ROI mask.
         roi_mask = self.mask > 0
         total_voxels = np.sum(roi_mask)
-        
+
         # Extract pmap values corresponding to the ROI.
         pmap_roi = self.pmap[roi_mask]
 
-        # Create a filter for pmap values less than 1000.
-        valid_pmap_mask = pmap_roi < 1000
+        # Keep only physically plausible values (NaN from failed fits is excluded too).
+        valid_pmap_mask = (pmap_roi > lower) & (pmap_roi < upper)
 
         # Combine with the fit quality mask if it exists.
         if self.fit_quality_mask is not None:
@@ -151,8 +160,12 @@ class ROI:
 
 
     def plot_distribution(self, bins=50, show_mean_std=True, 
-                        apply_valid_mask=True, valid_threshold=1000, 
+                        apply_valid_mask=True, valid_threshold=None,
                         apply_r2_mask=True):
+        """
+        Histogram of the fitted values in the ROI. `valid_threshold` overrides the upper
+        limit of the valid range (default: 1000 ms, or 5000 ms for T1).
+        """
         if self.pmap is None:
             print(f"ROI {self.label_id}: No parameter map available. Please fit the ROI first.")
             return
@@ -164,9 +177,12 @@ class ROI:
         # Start with a composite mask that excludes NaN values
         composite_mask = ~np.isnan(pmap_roi)
 
-        # Apply valid mask: parameter values below valid_threshold
+        # Apply valid mask: parameter values within the plausible range
         if apply_valid_mask:
-            composite_mask &= (pmap_roi < valid_threshold)
+            lower, upper = self.default_valid_range()
+            if valid_threshold is not None:
+                upper = valid_threshold
+            composite_mask &= (pmap_roi > lower) & (pmap_roi < upper)
 
         # Apply R² mask if available (ensuring good fits)
         if apply_r2_mask and self.fit_quality_mask is not None:

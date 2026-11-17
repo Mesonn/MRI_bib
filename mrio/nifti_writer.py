@@ -2,6 +2,7 @@ import SimpleITK as sitk
 from pathlib import Path
 import nibabel as nib
 import numpy as np
+from .nifti_reader import get_affine
 
 
 def save_nifti_sitk(image: sitk.Image, target_folder: Path):
@@ -58,21 +59,10 @@ def save_nifti_nibabel(image: sitk.Image, target_folder: Path):
     output_filename = f"Transformed_mask_{target_folder_name}.nii.gz"
     output_path = Path(output_filename)
 
-    # Convert SimpleITK image to NumPy array
-    img_array = sitk.GetArrayFromImage(image)  # Shape: [z, y, x]
-
-    # Extract spatial metadata from SimpleITK image
-    origin = image.GetOrigin()
-    spacing = image.GetSpacing()
-    direction = image.GetDirection()
-
-    # Convert direction to a 3x3 matrix
-    direction_matrix = np.array(direction).reshape(3, 3)
-
-    # Construct the affine matrix
-    affine = np.eye(4)
-    affine[:3, :3] = direction_matrix * spacing  # Scale direction by spacing
-    affine[:3, 3] = origin
+    # SimpleITK arrays are [z, y, x] with an LPS geometry; NIfTI/NiBabel expects [x, y, z]
+    # with an RAS affine.
+    img_array = np.transpose(sitk.GetArrayFromImage(image), (2, 1, 0))
+    affine = get_affine(image)
 
     # Create a Nifti1Image with NiBabel
     nifti_img = nib.Nifti1Image(img_array, affine)
